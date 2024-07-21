@@ -1,4 +1,4 @@
-# prompt-assistant.nvim
+# prompt-assistant
 A Neovim plugin that allows you to stream responses from AI language models (Anthropic's Claude and OpenAI's GPT) directly into your editor.
 
 ## Acknowledgment
