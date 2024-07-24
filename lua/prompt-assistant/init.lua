@@ -8,7 +8,7 @@ local default_opts = {
 	api_key_name = "ANTHROPIC_API_KEY",
 	model = "claude-3-opus-20240229",
 	system_prompt = "You are a helpful programming assistant. Provide clear and concise explanations.",
-	setup_keymaps = true, -- New option to control keymapping
+	setup_keymaps = true,
 }
 
 local function setup_keymaps()
@@ -28,12 +28,8 @@ function M.init(opts)
 	end
 end
 
-local function get_api_key(name)
-	return os.getenv(name)
-end
-
 local function make_curl_args(opts, prompt, system_prompt)
-	local api_key = opts.api_key_name and get_api_key(opts.api_key_name)
+	local api_key = opts.api_key_name and os.getenv(opts.api_key_name)
 	local data = {
 		system = system_prompt,
 		messages = { { role = "user", content = prompt } },
@@ -75,22 +71,12 @@ local function insert_text(text)
 end
 
 local text_buffer = ""
-local function handle_data(data_stream, event_state)
-	if event_state == "content_block_delta" then
-		local json = vim.json.decode(data_stream)
-		if json.delta and json.delta.text then
-			text_buffer = text_buffer .. json.delta.text
-			if #text_buffer > 20 or text_buffer:match("[.!?]%s*$") then
-				insert_text(text_buffer)
-				text_buffer = ""
-			end
-		end
-	elseif event_state == "message_stop" then
-		if #text_buffer > 0 then
-			insert_text(text_buffer)
-			text_buffer = ""
-		end
-	end
+
+local function handle_data(data_stream)
+    local json = vim.json.decode(data_stream)
+    if json.delta and json.delta.text then
+        insert_text(json.delta.text)
+    end
 end
 
 local function get_selected_text()
@@ -139,7 +125,6 @@ local function get_selected_text()
 end
 
 local active_job
-local curr_event_state
 
 -- Copy these from the previous core.lua file
 
@@ -155,29 +140,16 @@ function M.call_llm()
 		active_job:shutdown()
 	end
 
-	active_job = Job:new({
-		command = "curl",
-		args = args,
-		on_stdout = function(_, out)
-			local event = out:match("^event: (.+)$")
-			if event then
-				curr_event_state = event
-				return
-			end
-			local data_match = out:match("^data: (.+)$")
-			if data_match then
-				handle_data(data_match, curr_event_state)
-			end
-		end,
-		on_exit = function()
-			active_job = nil
-			-- Ensure any remaining text is inserted
-			if #text_buffer > 0 then
-				insert_text(text_buffer)
-				text_buffer = ""
-			end
-		end,
-	}):start()
+    active_job = Job:new({
+        command = "curl",
+        args = args,
+        on_stdout = function(_, out)
+            if out:match("^data: ") then
+                handle_data(out:match("^data: (.+)$"))
+            end
+        end,
+        on_exit = function() active_job = nil end,
+    }):start()
 
 	vim.api.nvim_create_autocmd("User", {
 		pattern = "PROMPT_ASSISTANT_Escape",
