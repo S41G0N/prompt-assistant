@@ -1,67 +1,38 @@
 local M = {}
 local Job = require("plenary.job")
 
+M.is_initialized = false
+
+local default_opts = {
+	url = "https://api.anthropic.com/v1/messages",
+	api_key_name = "ANTHROPIC_API_KEY",
+	model = "claude-3-opus-20240229",
+	system_prompt = "You are a helpful programming assistant. Provide clear and concise explanations.",
+	setup_keymaps = true, -- New option to control keymapping
+}
+
+local function setup_keymaps()
+	local map = vim.api.nvim_set_keymap
+	local opts = { noremap = true, silent = true }
+	map("v", "<Leader>F", ":AskAnthropic<CR>", opts)
+	map("n", "<Leader>F", ":AskAnthropic<CR>", opts)
+end
+
+function M.init(opts)
+	opts = vim.tbl_extend("force", default_opts, opts or {})
+	M.opts = opts
+	M.is_initialized = true
+
+	if opts.setup_keymaps then
+		setup_keymaps()
+	end
+end
+
 local function get_api_key(name)
 	return os.getenv(name)
 end
 
-function M.get_lines_until_cursor()
-	local current_buffer = vim.api.nvim_get_current_buf()
-	local current_window = vim.api.nvim_get_current_win()
-	local cursor_position = vim.api.nvim_win_get_cursor(current_window)
-	local row = cursor_position[1]
-
-	local lines = vim.api.nvim_buf_get_lines(current_buffer, 0, row, true)
-
-	return table.concat(lines, "\n")
-end
-
-function M.get_visual_selection()
-
-	local mode = vim.fn.mode()
-	if not (mode == "v" or mode == "V" or mode == "\22") then
-		return nil
-	end
-
-	local _, srow, scol = unpack(vim.fn.getpos("v"))
-	local _, erow, ecol = unpack(vim.fn.getpos("."))
-
-	if vim.fn.mode() == "V" then
-		if srow > erow then
-			return vim.api.nvim_buf_get_lines(0, erow - 1, srow, true)
-		else
-			return vim.api.nvim_buf_get_lines(0, srow - 1, erow, true)
-		end
-	end
-
-	if vim.fn.mode() == "v" then
-		if srow < erow or (srow == erow and scol <= ecol) then
-			return vim.api.nvim_buf_get_text(0, srow - 1, scol - 1, erow - 1, ecol, {})
-		else
-			return vim.api.nvim_buf_get_text(0, erow - 1, ecol - 1, srow - 1, scol, {})
-		end
-	end
-
-	if vim.fn.mode() == "\22" then
-		local lines = {}
-		if srow > erow then
-			srow, erow = erow, srow
-		end
-		if scol > ecol then
-			scol, ecol = ecol, scol
-		end
-		for i = srow, erow do
-			table.insert(
-				lines,
-				vim.api.nvim_buf_get_text(0, i - 1, math.min(scol - 1, ecol), i - 1, math.max(scol - 1, ecol), {})[1]
-			)
-		end
-		return lines
-	end
-end
-
-function M.make_anthropic_spec_curl_args(opts, prompt, system_prompt)
-	local url = opts.url
+local function make_curl_args(opts, prompt, system_prompt)
 	local api_key = opts.api_key_name and get_api_key(opts.api_key_name)
 	local data = {
 		system = system_prompt,
@@ -70,107 +41,145 @@ function M.make_anthropic_spec_curl_args(opts, prompt, system_prompt)
 		stream = true,
 		max_tokens = 4096,
 	}
-	local args = { "-N", "-X", "POST", "-H", "Content-Type: application/json", "-d", vim.json.encode(data) }
-	if api_key then
-		table.insert(args, "-H")
-		table.insert(args, "x-api-key: " .. api_key)
-		table.insert(args, "-H")
-		table.insert(args, "anthropic-version: 2023-06-01")
-	end
-	table.insert(args, url)
+	local args = {
+		"-N",
+		"-X",
+		"POST",
+		"-H",
+		"Content-Type: application/json",
+		"-d",
+		vim.json.encode(data),
+		"-H",
+		"x-api-key: " .. (api_key or ""),
+		"-H",
+		"anthropic-version: 2023-06-01",
+		opts.url,
+	}
 	return args
 end
 
-local function write_string_at_cursor(str)
+local function insert_text(text)
 	vim.schedule(function()
-		local current_window = vim.api.nvim_get_current_win()
-		local cursor_position = vim.api.nvim_win_get_cursor(current_window)
-		local row, col = cursor_position[1], cursor_position[2]
-
-		local lines = vim.split(str, "\n")
-
-		vim.cmd("undojoin")
-		vim.api.nvim_put(lines, "c", true, true)
-
-		local num_lines = #lines
-		local last_line_length = #lines[num_lines]
-		vim.api.nvim_win_set_cursor(current_window, { row + num_lines - 1, col + last_line_length })
+		local row, col = unpack(vim.api.nvim_win_get_cursor(0))
+		local lines = vim.split(text, "\n", true)
+		vim.api.nvim_buf_set_text(0, row - 1, col, row - 1, col, lines)
+		local new_row = row + #lines - 1
+		local new_col = col
+		if #lines > 1 then
+			new_col = #lines[#lines]
+		else
+			new_col = col + #lines[1]
+		end
+		vim.api.nvim_win_set_cursor(0, { new_row, new_col })
 	end)
 end
 
-local function get_prompt(opts)
-	local replace = opts.replace
-	local visual_lines = M.get_visual_selection()
-	local prompt = ""
-
-	if visual_lines and #visual_lines > 0 then
-		prompt = table.concat(visual_lines, "\n")
-		if replace then
-			vim.api.nvim_command("normal! d")
-			vim.api.nvim_command("normal! k")
-		else
-			vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", false, true, true), "nx", false)
-		end
-	else
-		-- Only get lines until cursor if there's no visual selection
-		prompt = M.get_lines_until_cursor()
-	end
-
-	return prompt
-end
-
-function M.handle_anthropic_spec_data(data_stream, event_state)
+local text_buffer = ""
+local function handle_data(data_stream, event_state)
 	if event_state == "content_block_delta" then
 		local json = vim.json.decode(data_stream)
 		if json.delta and json.delta.text then
-			write_string_at_cursor(json.delta.text)
+			text_buffer = text_buffer .. json.delta.text
+			if #text_buffer > 20 or text_buffer:match("[.!?]%s*$") then
+				insert_text(text_buffer)
+				text_buffer = ""
+			end
+		end
+	elseif event_state == "message_stop" then
+		if #text_buffer > 0 then
+			insert_text(text_buffer)
+			text_buffer = ""
 		end
 	end
 end
 
-local group = vim.api.nvim_create_augroup("PROMPT_ASSISTANT_AutoGroup", { clear = true })
-local active_job = nil
+local function get_selected_text()
+	local start_pos = vim.fn.getpos("'<")
+	local end_pos = vim.fn.getpos("'>")
+	local bufnr = vim.api.nvim_get_current_buf()
+	local lines = vim.api.nvim_buf_get_lines(bufnr, start_pos[2] - 1, end_pos[2], false)
 
-function M.invoke_llm_and_stream_into_editor(opts, make_curl_args_fn, handle_data_fn)
-	vim.api.nvim_clear_autocmds({ group = group })
-	local prompt = get_prompt(opts)
-	local system_prompt = opts.system_prompt or "Tell me the plugin was incorrectly setup"
-	local args = make_curl_args_fn(opts, prompt, system_prompt)
-	local curr_event_state = nil
+	-- Check if text is selected
+	if start_pos[2] == end_pos[2] and start_pos[3] == end_pos[3] then
+		-- No text selected, return all text in the buffer
+		local all_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+		local all_text = table.concat(all_lines, "\n")
 
-	local function parse_and_call(line)
-		local event = line:match("^event: (.+)$")
-		if event then
-			curr_event_state = event
-			return
-		end
-		local data_match = line:match("^data: (.+)$")
-		if data_match then
-			handle_data_fn(data_match, curr_event_state)
-		end
+		-- Move cursor to the end of the buffer and add a new line
+		local last_line = #all_lines
+		vim.api.nvim_buf_set_lines(bufnr, last_line, last_line, false, { "" })
+		vim.api.nvim_win_set_cursor(0, { last_line + 1, 0 })
+
+		return all_text
 	end
+
+	if #lines == 0 then
+		return ""
+	end
+	if #lines == 1 then
+		lines[1] = string.sub(lines[1], start_pos[3], end_pos[3])
+	else
+		lines[1] = string.sub(lines[1], start_pos[3])
+		lines[#lines] = string.sub(lines[#lines], 1, end_pos[3])
+	end
+
+	-- Move cursor to the end of selection and add a new line if needed
+	local last_line = vim.api.nvim_buf_line_count(bufnr)
+	local new_cursor_line = end_pos[2]
+
+	if new_cursor_line == last_line then
+		vim.api.nvim_buf_set_lines(bufnr, last_line, last_line, false, { "" })
+		new_cursor_line = last_line + 1
+	else
+		new_cursor_line = new_cursor_line + 1
+	end
+
+	vim.api.nvim_win_set_cursor(0, { new_cursor_line, 0 })
+	return table.concat(lines, "\n")
+end
+
+local active_job
+local curr_event_state
+
+-- Copy these from the previous core.lua file
+
+function M.call_llm()
+	if not M.is_initialized then
+		M.init(default_opts)
+	end
+
+	local prompt = get_selected_text()
+	local args = make_curl_args(M.opts, prompt, M.opts.system_prompt)
 
 	if active_job then
 		active_job:shutdown()
-		active_job = nil
 	end
 
 	active_job = Job:new({
 		command = "curl",
 		args = args,
 		on_stdout = function(_, out)
-			parse_and_call(out)
+			local event = out:match("^event: (.+)$")
+			if event then
+				curr_event_state = event
+				return
+			end
+			local data_match = out:match("^data: (.+)$")
+			if data_match then
+				handle_data(data_match, curr_event_state)
+			end
 		end,
-		on_stderr = function(_, _) end,
 		on_exit = function()
 			active_job = nil
+			-- Ensure any remaining text is inserted
+			if #text_buffer > 0 then
+				insert_text(text_buffer)
+				text_buffer = ""
+			end
 		end,
-	})
-
-	active_job:start()
+	}):start()
 
 	vim.api.nvim_create_autocmd("User", {
-		group = group,
 		pattern = "PROMPT_ASSISTANT_Escape",
 		callback = function()
 			if active_job then
@@ -184,10 +193,9 @@ function M.invoke_llm_and_stream_into_editor(opts, make_curl_args_fn, handle_dat
 	vim.api.nvim_set_keymap(
 		"n",
 		"<Esc>",
-		":doautocmd User PROMPT_ASSISTANT_ESCAPE<CR>",
+		":doautocmd User PROMPT_ASSISTANT_Escape<CR>",
 		{ noremap = true, silent = true }
 	)
-	return active_job
 end
 
 return M
