@@ -43,56 +43,117 @@ local function write_string_at_cursor(str)
 	end)
 end
 
-local function get_prompt(opts)
-	local start_pos = vim.fn.getpos("'<")
-	local end_pos = vim.fn.getpos("'>")
-	local bufnr = vim.api.nvim_get_current_buf()
-	local lines = vim.api.nvim_buf_get_lines(bufnr, start_pos[2] - 1, end_pos[2], false)
-
-	-- Check if text is selected
-	if start_pos[2] == end_pos[2] and start_pos[3] == end_pos[3] then
-		-- No text selected, return all text in the buffer
-		local all_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-		local all_text = table.concat(all_lines, "\n")
-		-- Move cursor to the end of the buffer and add a new line
-		local last_line = #all_lines
-		vim.api.nvim_buf_set_lines(bufnr, last_line, last_line, false, { "" })
-		vim.api.nvim_win_set_cursor(0, { last_line + 1, 0 })
-		return all_text
+local function get_prompt_for_llm(opts)
+	-- Selects all text in the current buffer up until the current cursor and returns it as a long string
+	local function get_lines_until_cursor()
+		local current_buffer = vim.api.nvim_get_current_buf()
+		local current_window = vim.api.nvim_get_current_win()
+		local cursor_position = vim.api.nvim_win_get_cursor(current_window)
+		local row = cursor_position[1]
+		local lines = vim.api.nvim_buf_get_lines(current_buffer, 0, row, true)
+		return table.concat(lines, "\n")
 	end
 
-	if #lines == 0 then
-		return ""
+	-- Selects all text in the current buffer and returns it as a single long string
+	local function get_entire_buffer()
+		local current_buffer = vim.api.nvim_get_current_buf()
+		local lines = vim.api.nvim_buf_get_lines(current_buffer, 0, -1, false)
+		local buffer_content = table.concat(lines, "\n")
+		return buffer_content
 	end
 
-	if #lines == 1 then
-		lines[1] = string.sub(lines[1], start_pos[3], end_pos[3])
-	else
-		lines[1] = string.sub(lines[1], start_pos[3])
-		lines[#lines] = string.sub(lines[#lines], 1, end_pos[3])
-	end
+	-- Selects text marked by Visual Mode in the current buffer and returns it as a single long string
+	local function get_selected_text()
+		local _, srow, scol = unpack(vim.fn.getpos("v"))
+		local _, erow, ecol = unpack(vim.fn.getpos("."))
 
-	local selected_text = table.concat(lines, "\n")
-
-	-- If opts.replace is true, delete the selected text
-	if opts and opts.replace then
-		vim.api.nvim_buf_set_text(bufnr, start_pos[2] - 1, start_pos[3] - 1, end_pos[2] - 1, end_pos[3], {})
-		-- Move cursor to the start of the deleted section
-		vim.api.nvim_win_set_cursor(0, { start_pos[2], start_pos[3] - 1 })
-	else
-		-- Move cursor to the end of selection and add a new line if needed
-		local last_line = vim.api.nvim_buf_line_count(bufnr)
-		local new_cursor_line = end_pos[2]
-		if new_cursor_line == last_line then
-			vim.api.nvim_buf_set_lines(bufnr, last_line, last_line, false, { "" })
-			new_cursor_line = last_line + 1
-		else
-			new_cursor_line = new_cursor_line + 1
+		if vim.fn.mode() == "V" then
+			if srow > erow then
+				return vim.api.nvim_buf_get_lines(0, erow - 1, srow, true)
+			else
+				return vim.api.nvim_buf_get_lines(0, srow - 1, erow, true)
+			end
 		end
-		vim.api.nvim_win_set_cursor(0, { new_cursor_line, 0 })
+
+		if vim.fn.mode() == "v" then
+			if srow < erow or (srow == erow and scol <= ecol) then
+				return vim.api.nvim_buf_get_text(0, srow - 1, scol - 1, erow - 1, ecol, {})
+			else
+				return vim.api.nvim_buf_get_text(0, erow - 1, ecol - 1, srow - 1, scol, {})
+			end
+		end
+
+		if vim.fn.mode() == "\22" then
+			local lines = {}
+			if srow > erow then
+				srow, erow = erow, srow
+			end
+			if scol > ecol then
+				scol, ecol = ecol, scol
+			end
+			for i = srow, erow do
+				table.insert(
+					lines,
+					vim.api.nvim_buf_get_text(0, i - 1, math.min(scol - 1, ecol), i - 1, math.max(scol - 1, ecol), {})[1]
+				)
+			end
+			return lines
+		end
 	end
 
-	return selected_text
+	-- Simulate common user motions/keys
+	local function simulate(command)
+		-- Simulates user press ESC
+		if command == "press_ESC" then
+			vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", false, true, true), "nx", false)
+		-- Simulates user pressed O
+		elseif command == "press_o" then
+			vim.api.nvim_feedkeys("o", "nx", false)
+		-- Inserts a line below and exits current mode
+		elseif command == "move_cursor_one_line_below" then
+			simulate("press_ESC")
+			simulate("press_o")
+			simulate("press_ESC")
+		end
+	end
+
+	local replace = opts.replace
+	local visual_lines = get_selected_text()
+	local prompt = ""
+
+	if visual_lines then
+		-- condense the prompt into one line separated by '\n'
+		prompt = table.concat(visual_lines, "\n")
+		if replace then
+			--removes the current line
+			vim.api.nvim_command("normal! d")
+			simulate("press_o")
+			simulate("press_ESC")
+		else
+			simulate("move_cursor_one_line_below")
+		end
+	else
+		while true do
+			local choice = vim.fn.input(
+				"No selection, choose prompt method -> a/c/q (select all | select until cursor | quit process)"
+			)
+			print("\n") -- Add a newline for better readability
+
+			if choice == "a" then
+				simulate("move_cursor_one_line_below")
+				return get_entire_buffer()
+			elseif choice == "c" then
+				return get_lines_until_cursor()
+			elseif choice == "q" then
+				print("Operation cancelled, you can select your specific prompt using Visual Mode")
+				return nil
+			else
+				print("Invalid choice. Please try again.")
+			end
+		end
+	end
+
+	return prompt
 end
 
 function M.handle_anthropic_spec_data(data_stream, event_state)
@@ -109,7 +170,7 @@ local active_job = nil
 
 function M.call_llm(opts, make_curl_args_fn, handle_data_fn)
 	vim.api.nvim_clear_autocmds({ group = group })
-	local prompt = get_prompt(opts)
+	local prompt = get_prompt_for_llm(opts)
 	local llm_behavior = opts.llm_behavior or "Tell me the plugin was set incorrectly"
 	local args = make_curl_args_fn(opts, prompt, llm_behavior)
 	local curr_event_state = nil

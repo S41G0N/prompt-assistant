@@ -44,18 +44,13 @@ export ANTHROPIC_API_KEY="your_anthropic_api_key"
 
 ## Usage
 
-### Commands
-
-- `:AskAnthropic`
-
 ### Default Key Mappings
+- Mappings work in both Visual & Normal mode:
+  - `<leader>C`: Ask Anthropic to write code (replaces selection)
+  - `<leader>c`: Ask Anthropic to write code (no replace)
 
-- Visual & Normal mode:
-  - `<leader>F`: Stream Anthropic response (replaces selection)
-
-### Customize mappings
-- To customize mappings, you can add the following commands in your Neovim configuration file as an example:
-`vim.api.nvim_set_keymap('v', '<leader>d', ':AskAnthropic<CR>', { noremap = true, silent = true })`
+  - `<leader>H`: Ask Anthropic for help (replaces selection)
+  - `<leader>h`: Ask Anthropic for help (no replace)
 
 ## License
 
