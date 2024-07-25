@@ -5,11 +5,11 @@ local function get_api_key(name)
 	return os.getenv(name)
 end
 
-function M.make_anthropic_spec_curl_args(opts, prompt, system_prompt)
+function M.make_anthropic_spec_curl_args(opts, prompt, llm_behavior)
 	local url = opts.url
 	local api_key = opts.api_key_name and get_api_key(opts.api_key_name)
 	local data = {
-		system = system_prompt,
+		system = llm_behavior,
 		messages = { { role = "user", content = prompt } },
 		model = opts.model,
 		stream = true,
@@ -110,8 +110,8 @@ local active_job = nil
 function M.call_llm(opts, make_curl_args_fn, handle_data_fn)
 	vim.api.nvim_clear_autocmds({ group = group })
 	local prompt = get_prompt(opts)
-	local system_prompt = opts.system_prompt or "Tell me the plugin was set incorrectly"
-	local args = make_curl_args_fn(opts, prompt, system_prompt)
+	local llm_behavior = opts.llm_behavior or "Tell me the plugin was set incorrectly"
+	local args = make_curl_args_fn(opts, prompt, llm_behavior)
 	local curr_event_state = nil
 
 	local function parse_and_call(line)
