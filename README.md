@@ -11,16 +11,14 @@ use {
   'S41G0N/prompt-assistant',
   requires = {'nvim-lua/plenary.nvim'},
   config = function()
-    require('prompt-assistant').init({
-      -- Custom options here (optional)
-    })
+    require('prompt-assistant')
   end
 }
 ```
 
 ## Acknowledgment
 
-This plugin was inspired by Yacine Benaffane (yacineMTB) and his [dingllm.nvim](https://github.com/yacineMTB/dingllm.nvim) project. Although it contains less features, this plugin will gradually be improved and is primarily meant to be a personal learning project.
+This plugin was forked from [dingllm.nvim](https://github.com/yacineMTB/dingllm.nvim) project made by yacineMTB.
 
 ## Features
 
