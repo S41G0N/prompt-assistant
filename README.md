@@ -52,6 +52,8 @@ export ANTHROPIC_API_KEY="your_anthropic_api_key"
   - `<leader>H`: Ask Anthropic for help (replaces selection)
   - `<leader>h`: Ask Anthropic for help (no replace)
 
+  - `<leader>l`: Ask Anthropic for help (displays the output on the new window)
+
 ## License
 
 Apache License 2.0

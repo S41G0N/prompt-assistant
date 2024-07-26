@@ -53,7 +53,6 @@ local function get_prompt_for_llm(opts)
 		local lines = vim.api.nvim_buf_get_lines(current_buffer, 0, row, true)
 		return table.concat(lines, "\n")
 	end
-
 	-- Selects all text in the current buffer and returns it as a single long string
 	local function get_entire_buffer()
 		local current_buffer = vim.api.nvim_get_current_buf()
@@ -61,7 +60,6 @@ local function get_prompt_for_llm(opts)
 		local buffer_content = table.concat(lines, "\n")
 		return buffer_content
 	end
-
 	-- Selects text marked by Visual Mode in the current buffer and returns it as a single long string
 	local function get_selected_text()
 		local _, srow, scol = unpack(vim.fn.getpos("v"))
@@ -101,22 +99,6 @@ local function get_prompt_for_llm(opts)
 		end
 	end
 
-	-- Simulate common user motions/keys
-	local function simulate(command)
-		-- Simulates user press ESC
-		if command == "press_ESC" then
-			vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", false, true, true), "nx", false)
-		-- Simulates user pressed O
-		elseif command == "press_o" then
-			vim.api.nvim_feedkeys("o", "nx", false)
-		-- Inserts a line below and exits current mode
-		elseif command == "move_cursor_one_line_below" then
-			simulate("press_ESC")
-			simulate("press_o")
-			simulate("press_ESC")
-		end
-	end
-
 	local replace = opts.replace
 	local visual_lines = get_selected_text()
 	local prompt = ""
@@ -125,22 +107,26 @@ local function get_prompt_for_llm(opts)
 		-- condense the prompt into one line separated by '\n'
 		prompt = table.concat(visual_lines, "\n")
 		if replace then
-			--removes the current line
+			--removes the current line and add a new line above
 			vim.api.nvim_command("normal! d")
-			simulate("press_o")
-			simulate("press_ESC")
+			vim.api.nvim_feedkeys("O", "nx", false)
+			vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", false, true, true), "nx", false)
 		else
-			simulate("move_cursor_one_line_below")
+            -- sets cursor one line below
+			vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", false, true, true), "nx", false)
+			vim.api.nvim_feedkeys("o", "nx", false)
+			vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", false, true, true), "nx", false)
 		end
 	else
 		while true do
 			local choice = vim.fn.input(
 				"No selection, choose prompt method -> a/c/q (select all | select until cursor | quit process)"
 			)
-			print("\n") -- Add a newline for better readability
 
 			if choice == "a" then
-				simulate("move_cursor_one_line_below")
+				vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", false, true, true), "nx", false)
+				vim.api.nvim_feedkeys("o", "nx", false)
+				vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", false, true, true), "nx", false)
 				return get_entire_buffer()
 			elseif choice == "c" then
 				return get_lines_until_cursor()
@@ -175,6 +161,15 @@ function M.call_llm(opts, make_curl_args_fn, handle_data_fn)
 	local args = make_curl_args_fn(opts, prompt, llm_behavior)
 	local curr_event_state = nil
 
+	local function open_new_window_before_write()
+		-- Create a vertical split with 70% width for the left window
+		vim.cmd("vsplit | vertical resize 75%")
+		-- Move to the right window
+		vim.cmd("wincmd l")
+		-- Create a new empty buffer in the right window
+		vim.cmd("enew")
+	end
+
 	local function parse_and_call(line)
 		local event = line:match("^event: (.+)$")
 		if event then
@@ -185,6 +180,10 @@ function M.call_llm(opts, make_curl_args_fn, handle_data_fn)
 		if data_match then
 			handle_data_fn(data_match, curr_event_state)
 		end
+	end
+
+	if opts.display_on_new_window then
+		open_new_window_before_write()
 	end
 
 	if active_job then
@@ -228,3 +227,4 @@ function M.call_llm(opts, make_curl_args_fn, handle_data_fn)
 end
 
 return M
+
