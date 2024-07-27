@@ -43,7 +43,7 @@ local function write_string_at_cursor(str)
 	end)
 end
 
-local function get_prompt_for_llm(opts)
+local function get_prompt_for_llm_and_adjust_cursor(opts)
 	-- Selects all text in the current buffer up until the current cursor and returns it as a long string
 	local function get_lines_until_cursor()
 		local current_buffer = vim.api.nvim_get_current_buf()
@@ -112,7 +112,20 @@ local function get_prompt_for_llm(opts)
 			vim.api.nvim_feedkeys("O", "nx", false)
 			vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", false, true, true), "nx", false)
 		else
-            -- sets cursor one line below
+			-- sets cursor one line below the current visual selection
+
+			-- Move cursor to the end of the visual selection
+			local _, srow, scol = unpack(vim.fn.getpos("v"))
+			local _, erow, ecol = unpack(vim.fn.getpos("."))
+
+			-- Ensure erow is always the last row of the selection
+			if srow > erow then
+				srow, erow = erow, srow
+				scol, ecol = ecol, scol
+			end
+
+			-- Move cursor to the end of the selection
+			vim.api.nvim_win_set_cursor(0, { erow, ecol - 1 })
 			vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", false, true, true), "nx", false)
 			vim.api.nvim_feedkeys("o", "nx", false)
 			vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", false, true, true), "nx", false)
@@ -156,11 +169,12 @@ local active_job = nil
 
 function M.call_llm(opts, make_curl_args_fn, handle_data_fn)
 	vim.api.nvim_clear_autocmds({ group = group })
-	local prompt = get_prompt_for_llm(opts)
+	local prompt = get_prompt_for_llm_and_adjust_cursor(opts)
 	local llm_behavior = opts.llm_behavior or "Tell me the plugin was set incorrectly"
 	local args = make_curl_args_fn(opts, prompt, llm_behavior)
 	local curr_event_state = nil
 
+	-- Add a command to go to the end of the buffer after printing the ascii
 	local function open_new_window_before_write()
 		-- Create a vertical split with 70% width for the left window
 		vim.cmd("vsplit | vertical resize 75%")
@@ -168,6 +182,23 @@ function M.call_llm(opts, make_curl_args_fn, handle_data_fn)
 		vim.cmd("wincmd l")
 		-- Create a new empty buffer in the right window
 		vim.cmd("enew")
+		vim.api.nvim_buf_set_lines(0, 0, -1, false, {
+			" ____                            _    ",
+			"|  _ \\ _ __ ___  _ __ ___  _ __ | |_  ",
+			"| |_) | '__/ _ \\| '_ ` _ \\| '_ \\| __| ",
+			"|  __/| | | (_) | | | | | | |_) | |_  ",
+			"|_|   |_|  \\___/|_| |_| |_| .__/ \\__| ",
+			"                          |_|         ",
+			"    _              _     _            _   ",
+			"   / \\   ___ ___(_)___| |_ __ _ _ __ | |_ ",
+			"  / _ \\ / __/ __| / __| __/ _` | '_ \\| __|",
+			" / ___ \\\\__ \\__ \\ \\__ \\ || (_| | | | | |_ ",
+			"/_/   \\_\\___/___/_|___/\\__\\__,_|_| |_|\\__|",
+			"",
+			"",
+		})
+		-- Move the cursor to the end of the buffer
+		vim.cmd("normal! G")
 	end
 
 	local function parse_and_call(line)
@@ -227,4 +258,5 @@ function M.call_llm(opts, make_curl_args_fn, handle_data_fn)
 end
 
 return M
+
 

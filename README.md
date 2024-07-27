@@ -1,6 +1,9 @@
 # prompt-assistant
 
-A Neovim plugin for interacting with the Anthropic API.
+A Neovim plugin for interacting with the Anthropic API within the existing buffer.
+
+![Demo](img/demo.gif)
+
 
 ## Installation
 
@@ -19,6 +22,7 @@ use {
 ## Acknowledgment
 
 This plugin was forked from [dingllm.nvim](https://github.com/yacineMTB/dingllm.nvim) project made by yacineMTB.
+Modifications were made, the ability to display the result on a split window was added, cursor behavior was improved so I doesn't override existing text.
 
 ## Features
 
