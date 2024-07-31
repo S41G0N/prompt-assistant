@@ -5,29 +5,13 @@ local function get_api_key(name)
 	return os.getenv(name)
 end
 
-function M.make_anthropic_spec_curl_args(opts, prompt, llm_behavior)
-	local url = opts.url
-	local api_key = opts.api_key_name and get_api_key(opts.api_key_name)
-	local data = {
-		system = llm_behavior,
-		messages = { { role = "user", content = prompt } },
-		model = opts.model,
-		stream = true,
-		max_tokens = 4096,
-	}
-	local args = { "-N", "-X", "POST", "-H", "Content-Type: application/json", "-d", vim.json.encode(data) }
-	if api_key then
-		table.insert(args, "-H")
-		table.insert(args, "x-api-key: " .. api_key)
-		table.insert(args, "-H")
-		table.insert(args, "anthropic-version: 2023-06-01")
-	end
-	table.insert(args, url)
-	return args
-end
-
 local function write_string_at_cursor(str)
 	vim.schedule(function()
+		-- ensure soft breaks to not make the text exceed the buffer
+		vim.wo.wrap = true
+		vim.wo.linebreak = true
+		vim.wo.breakindent = true
+
 		local current_window = vim.api.nvim_get_current_win()
 		local cursor_position = vim.api.nvim_win_get_cursor(current_window)
 		local row, col = cursor_position[1], cursor_position[2]
@@ -99,6 +83,7 @@ local function get_prompt_for_llm_and_adjust_cursor(opts)
 		end
 	end
 
+	-- ADJUST THE CURSOR
 	local replace = opts.replace
 	local visual_lines = get_selected_text()
 	local prompt = ""
@@ -106,42 +91,47 @@ local function get_prompt_for_llm_and_adjust_cursor(opts)
 	if visual_lines then
 		-- condense the prompt into one line separated by '\n'
 		prompt = table.concat(visual_lines, "\n")
-		if replace then
-			--removes the current line and add a new line above
-			vim.api.nvim_command("normal! d")
-			vim.api.nvim_feedkeys("O", "nx", false)
-			vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", false, true, true), "nx", false)
-		else
-			-- sets cursor one line below the current visual selection
+		local bufnr = vim.api.nvim_get_current_buf()
+		local _, srow, _ = unpack(vim.fn.getpos("v"))
+		local _, erow, _ = unpack(vim.fn.getpos("."))
 
-			-- Move cursor to the end of the visual selection
-			local _, srow, scol = unpack(vim.fn.getpos("v"))
-			local _, erow, ecol = unpack(vim.fn.getpos("."))
-
-			-- Ensure erow is always the last row of the selection
-			if srow > erow then
-				srow, erow = erow, srow
-				scol, ecol = ecol, scol
-			end
-
-			-- Move cursor to the end of the selection
-			vim.api.nvim_win_set_cursor(0, { erow, ecol - 1 })
-			vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", false, true, true), "nx", false)
-			vim.api.nvim_feedkeys("o", "nx", false)
-			vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", false, true, true), "nx", false)
+		-- Ensure erow is always the last row of the selection
+		if srow > erow then
+			srow, erow = erow, srow
 		end
+
+		if replace then
+			-- Replace the selected lines with a single empty line
+			vim.api.nvim_buf_set_lines(bufnr, srow - 1, erow, false, { "" })
+			vim.api.nvim_win_set_cursor(0, { srow, 0 })
+		else
+			-- Add an empty line after the selection
+			vim.api.nvim_buf_set_lines(bufnr, erow, erow, false, { "" })
+			vim.api.nvim_win_set_cursor(0, { erow + 1, 0 })
+		end
+
+		-- Clear the visual selection
+		vim.api.nvim_command("normal! " .. vim.api.nvim_replace_termcodes("<Esc>", true, false, true))
 	else
 		while true do
 			local choice = vim.fn.input(
 				"No selection, choose prompt method -> a/c/q (select all | select until cursor | quit process)"
 			)
-
 			if choice == "a" then
-				vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", false, true, true), "nx", false)
-				vim.api.nvim_feedkeys("o", "nx", false)
-				vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", false, true, true), "nx", false)
+				local bufnr = vim.api.nvim_get_current_buf()
+				local line_count = vim.api.nvim_buf_line_count(bufnr)
+				-- Add a new line at the end of the buffer
+				vim.api.nvim_buf_set_lines(bufnr, line_count, -1, false, { "" })
+				-- Move cursor to the new line
+				vim.api.nvim_win_set_cursor(0, { line_count + 1, 0 })
 				return get_entire_buffer()
 			elseif choice == "c" then
+				local bufnr = vim.api.nvim_get_current_buf()
+				local current_line = vim.api.nvim_win_get_cursor(0)[1]
+				-- Insert a new empty line below the current line
+				vim.api.nvim_buf_set_lines(bufnr, current_line, current_line, false, { "" })
+				-- Move cursor to the new line
+				vim.api.nvim_win_set_cursor(0, { current_line + 1, 0 })
 				return get_lines_until_cursor()
 			elseif choice == "q" then
 				print("Operation cancelled, you can select your specific prompt using Visual Mode")
@@ -155,6 +145,28 @@ local function get_prompt_for_llm_and_adjust_cursor(opts)
 	return prompt
 end
 
+local function get_ascii_message(message_name)
+	local plugin_root = vim.fn.fnamemodify(vim.fn.resolve(vim.fn.expand("<sfile>:p")), ":h:h:h")
+	local ascii_file = plugin_root .. "/ascii_msg/" .. message_name .. ".txt"
+	local file = io.open(ascii_file, "r")
+	if not file then
+		return { "Error: Couldn't load ASCII message: " .. message_name, "" }
+	end
+	local content = file:read("*all")
+	file:close()
+	return vim.split(content, "\n")
+end
+
+-- Create a new buffer to the right and print "prompt assistant" in ASCII and move the cursor to the end
+local function open_new_window_before_write()
+	vim.cmd("vsplit | vertical resize 75%")
+	vim.cmd("wincmd l")
+	vim.cmd("enew")
+	local ascii_msg = get_ascii_message("prompt-assistant")
+	vim.api.nvim_buf_set_lines(0, 0, -1, false, ascii_msg)
+	vim.cmd("normal! G")
+end
+
 function M.handle_anthropic_spec_data(data_stream, event_state)
 	if event_state == "content_block_delta" then
 		local json = vim.json.decode(data_stream)
@@ -162,6 +174,27 @@ function M.handle_anthropic_spec_data(data_stream, event_state)
 			write_string_at_cursor(json.delta.text)
 		end
 	end
+end
+
+function M.make_anthropic_spec_curl_args(opts, prompt, llm_behavior)
+	local url = opts.url
+	local api_key = opts.api_key_name and get_api_key(opts.api_key_name)
+	local data = {
+		system = llm_behavior,
+		messages = { { role = "user", content = prompt } },
+		model = opts.model,
+		stream = true,
+		max_tokens = 4096,
+	}
+	local args = { "-N", "-X", "POST", "-H", "Content-Type: application/json", "-d", vim.json.encode(data) }
+	if api_key then
+		table.insert(args, "-H")
+		table.insert(args, "x-api-key: " .. api_key)
+		table.insert(args, "-H")
+		table.insert(args, "anthropic-version: 2023-06-01")
+	end
+	table.insert(args, url)
+	return args
 end
 
 local group = vim.api.nvim_create_augroup("PROMPT_ASSISTANT_AutoGroup", { clear = true })
@@ -174,31 +207,8 @@ function M.call_llm(opts, make_curl_args_fn, handle_data_fn)
 	local args = make_curl_args_fn(opts, prompt, llm_behavior)
 	local curr_event_state = nil
 
-	-- Add a command to go to the end of the buffer after printing the ascii
-	local function open_new_window_before_write()
-		-- Create a vertical split with 70% width for the left window
-		vim.cmd("vsplit | vertical resize 75%")
-		-- Move to the right window
-		vim.cmd("wincmd l")
-		-- Create a new empty buffer in the right window
-		vim.cmd("enew")
-		vim.api.nvim_buf_set_lines(0, 0, -1, false, {
-			" ____                            _    ",
-			"|  _ \\ _ __ ___  _ __ ___  _ __ | |_  ",
-			"| |_) | '__/ _ \\| '_ ` _ \\| '_ \\| __| ",
-			"|  __/| | | (_) | | | | | | |_) | |_  ",
-			"|_|   |_|  \\___/|_| |_| |_| .__/ \\__| ",
-			"                          |_|         ",
-			"    _              _     _            _   ",
-			"   / \\   ___ ___(_)___| |_ __ _ _ __ | |_ ",
-			"  / _ \\ / __/ __| / __| __/ _` | '_ \\| __|",
-			" / ___ \\\\__ \\__ \\ \\__ \\ || (_| | | | | |_ ",
-			"/_/   \\_\\___/___/_|___/\\__\\__,_|_| |_|\\__|",
-			"",
-			"",
-		})
-		-- Move the cursor to the end of the buffer
-		vim.cmd("normal! G")
+	if opts.display_on_new_window then
+		open_new_window_before_write()
 	end
 
 	local function parse_and_call(line)
@@ -211,10 +221,6 @@ function M.call_llm(opts, make_curl_args_fn, handle_data_fn)
 		if data_match then
 			handle_data_fn(data_match, curr_event_state)
 		end
-	end
-
-	if opts.display_on_new_window then
-		open_new_window_before_write()
 	end
 
 	if active_job then
@@ -258,5 +264,4 @@ function M.call_llm(opts, make_curl_args_fn, handle_data_fn)
 end
 
 return M
-
 
