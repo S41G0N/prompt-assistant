@@ -162,7 +162,7 @@ local function open_new_window_before_write()
 	vim.cmd("vsplit | vertical resize 75%")
 	vim.cmd("wincmd l")
 	vim.cmd("enew")
-	local ascii_msg = get_ascii_message("prompt-assistant")
+	local ascii_msg = get_ascii_message("prompt-assistant.txt")
 	vim.api.nvim_buf_set_lines(0, 0, -1, false, ascii_msg)
 	vim.cmd("normal! G")
 end
