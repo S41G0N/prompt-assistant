@@ -146,8 +146,8 @@ local function get_prompt_for_llm_and_adjust_cursor(opts)
 end
 
 local function get_ascii_message(message_name)
-	local plugin_root = vim.fn.fnamemodify(vim.fn.resolve(vim.fn.expand("<sfile>:p")), ":h:h:h")
-	local ascii_file = plugin_root .. "/ascii_msg/" .. message_name .. ".txt"
+    local ascii_file = os.getenv("HOME") .. "/.local/share/nvim/site/pack/packer/start/prompt-assistant" .. "/ascii_msg/" .. message_name .. ".txt"
+
 	local file = io.open(ascii_file, "r")
 	if not file then
 		return { "Error: Couldn't load ASCII message: " .. message_name, "" }
@@ -162,7 +162,7 @@ local function open_new_window_before_write()
 	vim.cmd("vsplit | vertical resize 75%")
 	vim.cmd("wincmd l")
 	vim.cmd("enew")
-	local ascii_msg = get_ascii_message("prompt-assistant.txt")
+	local ascii_msg = get_ascii_message("prompt-assistant")
 	vim.api.nvim_buf_set_lines(0, 0, -1, false, ascii_msg)
 	vim.cmd("normal! G")
 end
@@ -264,4 +264,6 @@ function M.call_llm(opts, make_curl_args_fn, handle_data_fn)
 end
 
 return M
+
+
 
