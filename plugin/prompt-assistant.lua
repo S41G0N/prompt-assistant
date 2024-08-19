@@ -16,7 +16,20 @@ local function call_anthropic(options)
 		llm_behavior = options.behavior or be_helpful,
 		replace = options.replace or false,
 		display_on_new_window = options.display_on_new_window or false,
+        llm = "anthropic"
 	}, prompt_assistant.make_anthropic_spec_curl_args, prompt_assistant.handle_anthropic_spec_data)
+end
+
+local function call_ollama(options)
+	options = options or {}
+	prompt_assistant.call_llm({
+		url = os.getenv("OLLAMA_URL_LINK") or "http://localhost:11434/api/generate",
+		model = options.model or "llama3.1",
+		llm_behavior = options.behavior or be_helpful,
+		replace = options.replace or false,
+		display_on_new_window = options.display_on_new_window or false,
+        llm = "ollama"
+	}, prompt_assistant.make_ollama_spec_curl_args, prompt_assistant.handle_ollama_spec_data)
 end
 
 -- Set up keybindings
@@ -27,4 +40,4 @@ map({ "n", "v" }, "<leader>l", function() call_anthropic({ display_on_new_window
 map({ "n", "v" }, "<leader>c", function() call_anthropic({ behavior = output_code }) end, { desc = "Call Anthropic LLM and output code" })
 map({ "n", "v" }, "<leader>C", function() call_anthropic({ behavior = output_code, replace = true }) end, { desc = "Call Anthropic LLM and replace the current selection with code" })
 map({ "n", "v" }, "<leader>L", function() call_anthropic({ behavior = debug_code, display_on_new_window = true }) end, { desc = "Call Anthropic LLM to debug code on the new window" })
-
+map({ "n", "v" }, "<leader>d", function() call_ollama({display_on_new_window = true }) end, { desc = "Call Ollama model to debug code on the new window" })

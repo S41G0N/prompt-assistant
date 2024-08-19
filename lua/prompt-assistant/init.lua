@@ -146,7 +146,10 @@ local function get_prompt_for_llm_and_adjust_cursor(opts)
 end
 
 local function get_ascii_message(message_name)
-    local ascii_file = os.getenv("HOME") .. "/.local/share/nvim/site/pack/packer/start/prompt-assistant" .. "/ascii_msg/" .. message_name .. ".txt"
+	local ascii_file = os.getenv("HOME")
+		.. "/.local/share/nvim/site/pack/packer/start/prompt-assistant"
+		.. "/ascii_msg/"
+		.. message_name
 
 	local file = io.open(ascii_file, "r")
 	if not file then
@@ -162,7 +165,7 @@ local function open_new_window_before_write()
 	vim.cmd("vsplit | vertical resize 75%")
 	vim.cmd("wincmd l")
 	vim.cmd("enew")
-	local ascii_msg = get_ascii_message("prompt-assistant")
+	local ascii_msg = get_ascii_message("prompt-assistant.txt")
 	vim.api.nvim_buf_set_lines(0, 0, -1, false, ascii_msg)
 	vim.cmd("normal! G")
 end
@@ -197,6 +200,24 @@ function M.make_anthropic_spec_curl_args(opts, prompt, llm_behavior)
 	return args
 end
 
+function M.handle_ollama_spec_data(data_stream)
+	local json = vim.json.decode(data_stream)
+	if json.response then
+		write_string_at_cursor(json.response)
+	end
+	if json.done then
+		write_string_at_cursor("\n\nResponse completed.")
+	end
+end
+
+function M.make_ollama_spec_curl_args(opts, prompt, llm_behavior)
+	local url = opts.url or "http://localhost:11434/api/generate"
+	local data = { system = llm_behavior, prompt = prompt, model = opts.model, stream = true }
+	local json_data = vim.json.encode(data)
+	local args = { "-N", "-X", "POST", "-H", "Content-Type: application/json", "-d", json_data, url }
+	return args
+end
+
 local group = vim.api.nvim_create_augroup("PROMPT_ASSISTANT_AutoGroup", { clear = true })
 local active_job = nil
 
@@ -212,14 +233,20 @@ function M.call_llm(opts, make_curl_args_fn, handle_data_fn)
 	end
 
 	local function parse_and_call(line)
-		local event = line:match("^event: (.+)$")
-		if event then
-			curr_event_state = event
-			return
+		if opts.llm == "anthropic" then
+			local event = line:match("^event: (.+)$")
+			if event then
+				curr_event_state = event
+				return
+			end
+			local data_match = line:match("^data: (.+)$")
+			if data_match then
+				handle_data_fn(data_match, curr_event_state)
+			end
 		end
-		local data_match = line:match("^data: (.+)$")
-		if data_match then
-			handle_data_fn(data_match, curr_event_state)
+
+		if opts.llm == "ollama" then
+			handle_data_fn(line)
 		end
 	end
 
@@ -254,16 +281,8 @@ function M.call_llm(opts, make_curl_args_fn, handle_data_fn)
 		end,
 	})
 
-	vim.api.nvim_set_keymap(
-		"n",
-		"<Esc>",
-		":doautocmd User PROMPT_ASSISTANT_Escape<CR>",
-		{ noremap = true, silent = true }
-	)
+	vim.api.nvim_set_keymap("n", "<Esc>", ":doautocmd User PROMPT_ASSISTANT_Escape<CR>", { noremap = true, silent = true })
 	return active_job
 end
 
 return M
-
-
-
