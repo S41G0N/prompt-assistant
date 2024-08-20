@@ -23,7 +23,7 @@ end
 local function call_ollama(options)
 	options = options or {}
 	prompt_assistant.call_llm({
-		url = os.getenv("OLLAMA_URL_LINK") or "http://localhost:11434/api/generate",
+		url = "http://localhost:11434/api/generate",
 		model = options.model or "llama3.1",
 		llm_behavior = options.behavior or be_helpful,
 		replace = options.replace or false,

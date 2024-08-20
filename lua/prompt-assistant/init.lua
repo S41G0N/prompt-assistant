@@ -1,8 +1,22 @@
 local M = {}
 local Job = require("plenary.job")
 
-local function get_api_key(name)
-	return os.getenv(name)
+local log_levels = { DEBUG = 1, INFO = 2, WARN = 3, ERROR = 4 }
+local current_log_level = log_levels.INFO
+
+local function log(level, message)
+	if level >= current_log_level then
+		vim.notify(message, vim.log.levels[level])
+	end
+end
+
+local function get_environment_variable(name)
+	local env_var_value = os.getenv(name)
+	if not env_var_value then
+		log(log_levels.ERROR, "Environment variable not found: " .. name)
+		return nil
+	end
+	return env_var_value
 end
 
 local function write_string_at_cursor(str)
@@ -146,14 +160,15 @@ local function get_prompt_for_llm_and_adjust_cursor(options)
 end
 
 local function get_ascii_message(message_name)
-	local ascii_file = os.getenv("HOME")
+	local ascii_file = get_environment_variable("HOME")
 		.. "/.local/share/nvim/site/pack/packer/start/prompt-assistant"
 		.. "/ascii_msg/"
 		.. message_name
 
-	local file = io.open(ascii_file, "r")
+	local file, err = io.open(ascii_file, "r")
 	if not file then
-		return { "Error: Couldn't load ASCII message: " .. message_name, "" }
+		log(log_levels.ERROR, "Couldn't load ASCII message: " .. message_name .. ". Error: " .. tostring(err))
+		return { "PROMPT ASSISTANT" }
 	end
 	local content = file:read("*all")
 	file:close()
@@ -162,20 +177,24 @@ end
 
 -- Create a new buffer to the right and print "prompt assistant" in ASCII and move the cursor to the end
 local function open_new_window_before_write(llm_api_provider)
-    vim.cmd("vsplit | vertical resize 75%")
-    vim.cmd("wincmd l")
-    vim.cmd("enew")
-    local ascii_msg = get_ascii_message("prompt-assistant.txt")
-    if llm_api_provider then
-        ascii_msg = get_ascii_message(llm_api_provider .. ".txt")
-    end
-    vim.api.nvim_buf_set_lines(0, 0, -1, false, ascii_msg)
-    vim.cmd("normal! G")
+	vim.cmd("vsplit | vertical resize 75%")
+	vim.cmd("wincmd l")
+	vim.cmd("enew")
+	local ascii_msg = get_ascii_message("prompt-assistant.txt")
+	if llm_api_provider then
+		ascii_msg = get_ascii_message(llm_api_provider .. ".txt")
+	end
+	vim.api.nvim_buf_set_lines(0, 0, -1, false, ascii_msg)
+	vim.cmd("normal! G")
 end
 
 function M.handle_anthropic_spec_data(data_stream, event_state)
+	local ok, json = pcall(vim.json.decode, data_stream)
+	if not ok then
+		log(log_levels.ERROR, "Failed to parse JSON: " .. tostring(json))
+		return
+	end
 	if event_state == "content_block_delta" then
-		local json = vim.json.decode(data_stream)
 		if json.delta and json.delta.text then
 			write_string_at_cursor(json.delta.text)
 		end
@@ -183,9 +202,14 @@ function M.handle_anthropic_spec_data(data_stream, event_state)
 end
 
 function M.make_curl_args_for_specified_llm(options, prompt, llm_behavior, llm_api_provider)
+	if not options or not prompt or not llm_behavior or not llm_api_provider then
+		log(log_levels.ERROR, "Missing required parameters for make_curl_args_for_specified_llm")
+		return nil
+	end
+
 	if llm_api_provider == "anthropic" then
 		local url = options.url
-		local api_key = options.api_key_name and get_api_key(options.api_key_name)
+		local api_key = options.api_key_name and get_environment_variable(options.api_key_name)
 		local data = {
 			system = llm_behavior,
 			messages = { { role = "user", content = prompt } },
@@ -202,19 +226,24 @@ function M.make_curl_args_for_specified_llm(options, prompt, llm_behavior, llm_a
 		end
 		table.insert(args, url)
 		return args
+	elseif llm_api_provider == "ollama" then
+		local url = get_environment_variable("OLLAMA_URL_LINK") or options.url
+		local data = { system = llm_behavior, prompt = prompt, model = options.model, stream = true }
+		local json_data = vim.json.encode(data)
+		local args = { "-N", "-X", "POST", "-H", "Content-Type: application/json", "-d", json_data, url }
+		return args
 	else
-		if llm_api_provider == "ollama" then
-			local url = options.url or "http://localhost:11434/api/generate"
-			local data = { system = llm_behavior, prompt = prompt, model = options.model, stream = true }
-			local json_data = vim.json.encode(data)
-			local args = { "-N", "-X", "POST", "-H", "Content-Type: application/json", "-d", json_data, url }
-			return args
-		end
+		log(log_levels.ERROR, "Unsupported LLM API provider: " .. tostring(llm_api_provider))
+		return nil
 	end
 end
 
 function M.handle_ollama_spec_data(data_stream)
-	local json = vim.json.decode(data_stream)
+	local ok, json = pcall(vim.json.decode, data_stream)
+	if not ok then
+		log(log_levels.ERROR, "Failed to parse JSON: " .. tostring(json))
+		return
+	end
 	if json.response then
 		write_string_at_cursor(json.response)
 	end
@@ -227,9 +256,24 @@ local group = vim.api.nvim_create_augroup("PROMPT_ASSISTANT_AutoGroup", { clear 
 local active_job = nil
 
 function M.call_llm(options)
-	vim.api.nvim_clear_autocmds({ group = group })
+	if not options or not options.llm_api_provider then
+		log(log_levels.ERROR, "Invalid options provided to call_llm")
+		return nil
+	end
+
 	local prompt = get_prompt_for_llm_and_adjust_cursor(options)
+	if not prompt then
+		log(log_levels.ERROR, "Failed to get prompt for LLM")
+		return nil
+	end
+
 	local args = M.make_curl_args_for_specified_llm(options, prompt, options.llm_behavior, options.llm_api_provider)
+	if not args then
+		log(log_levels.ERROR, "Failed to create curl arguments")
+		return nil
+	end
+
+	vim.api.nvim_clear_autocmds({ group = group })
 	local curr_event_state = nil
 
 	if options.display_on_new_window then
