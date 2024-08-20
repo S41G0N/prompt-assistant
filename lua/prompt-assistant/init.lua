@@ -27,7 +27,7 @@ local function write_string_at_cursor(str)
 	end)
 end
 
-local function get_prompt_for_llm_and_adjust_cursor(opts)
+local function get_prompt_for_llm_and_adjust_cursor(options)
 	-- Selects all text in the current buffer up until the current cursor and returns it as a long string
 	local function get_lines_until_cursor()
 		local current_buffer = vim.api.nvim_get_current_buf()
@@ -84,7 +84,7 @@ local function get_prompt_for_llm_and_adjust_cursor(opts)
 	end
 
 	-- ADJUST THE CURSOR
-	local replace = opts.replace
+	local replace = options.replace
 	local visual_lines = get_selected_text()
 	local prompt = ""
 
@@ -161,13 +161,16 @@ local function get_ascii_message(message_name)
 end
 
 -- Create a new buffer to the right and print "prompt assistant" in ASCII and move the cursor to the end
-local function open_new_window_before_write()
-	vim.cmd("vsplit | vertical resize 75%")
-	vim.cmd("wincmd l")
-	vim.cmd("enew")
-	local ascii_msg = get_ascii_message("prompt-assistant.txt")
-	vim.api.nvim_buf_set_lines(0, 0, -1, false, ascii_msg)
-	vim.cmd("normal! G")
+local function open_new_window_before_write(llm_api_provider)
+    vim.cmd("vsplit | vertical resize 75%")
+    vim.cmd("wincmd l")
+    vim.cmd("enew")
+    local ascii_msg = get_ascii_message("prompt-assistant.txt")
+    if llm_api_provider then
+        ascii_msg = get_ascii_message(llm_api_provider .. ".txt")
+    end
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, ascii_msg)
+    vim.cmd("normal! G")
 end
 
 function M.handle_anthropic_spec_data(data_stream, event_state)
@@ -179,25 +182,35 @@ function M.handle_anthropic_spec_data(data_stream, event_state)
 	end
 end
 
-function M.make_anthropic_spec_curl_args(opts, prompt, llm_behavior)
-	local url = opts.url
-	local api_key = opts.api_key_name and get_api_key(opts.api_key_name)
-	local data = {
-		system = llm_behavior,
-		messages = { { role = "user", content = prompt } },
-		model = opts.model,
-		stream = true,
-		max_tokens = 4096,
-	}
-	local args = { "-N", "-X", "POST", "-H", "Content-Type: application/json", "-d", vim.json.encode(data) }
-	if api_key then
-		table.insert(args, "-H")
-		table.insert(args, "x-api-key: " .. api_key)
-		table.insert(args, "-H")
-		table.insert(args, "anthropic-version: 2023-06-01")
+function M.make_curl_args_for_specified_llm(options, prompt, llm_behavior, llm_api_provider)
+	if llm_api_provider == "anthropic" then
+		local url = options.url
+		local api_key = options.api_key_name and get_api_key(options.api_key_name)
+		local data = {
+			system = llm_behavior,
+			messages = { { role = "user", content = prompt } },
+			model = options.model,
+			stream = true,
+			max_tokens = 4096,
+		}
+		local args = { "-N", "-X", "POST", "-H", "Content-Type: application/json", "-d", vim.json.encode(data) }
+		if api_key then
+			table.insert(args, "-H")
+			table.insert(args, "x-api-key: " .. api_key)
+			table.insert(args, "-H")
+			table.insert(args, "anthropic-version: 2023-06-01")
+		end
+		table.insert(args, url)
+		return args
+	else
+		if llm_api_provider == "ollama" then
+			local url = options.url or "http://localhost:11434/api/generate"
+			local data = { system = llm_behavior, prompt = prompt, model = options.model, stream = true }
+			local json_data = vim.json.encode(data)
+			local args = { "-N", "-X", "POST", "-H", "Content-Type: application/json", "-d", json_data, url }
+			return args
+		end
 	end
-	table.insert(args, url)
-	return args
 end
 
 function M.handle_ollama_spec_data(data_stream)
@@ -206,34 +219,25 @@ function M.handle_ollama_spec_data(data_stream)
 		write_string_at_cursor(json.response)
 	end
 	if json.done then
-		write_string_at_cursor("\n\nResponse completed.")
+		write_string_at_cursor("\n")
 	end
-end
-
-function M.make_ollama_spec_curl_args(opts, prompt, llm_behavior)
-	local url = opts.url or "http://localhost:11434/api/generate"
-	local data = { system = llm_behavior, prompt = prompt, model = opts.model, stream = true }
-	local json_data = vim.json.encode(data)
-	local args = { "-N", "-X", "POST", "-H", "Content-Type: application/json", "-d", json_data, url }
-	return args
 end
 
 local group = vim.api.nvim_create_augroup("PROMPT_ASSISTANT_AutoGroup", { clear = true })
 local active_job = nil
 
-function M.call_llm(opts, make_curl_args_fn, handle_data_fn)
+function M.call_llm(options)
 	vim.api.nvim_clear_autocmds({ group = group })
-	local prompt = get_prompt_for_llm_and_adjust_cursor(opts)
-	local llm_behavior = opts.llm_behavior or "Tell me the plugin was set incorrectly"
-	local args = make_curl_args_fn(opts, prompt, llm_behavior)
+	local prompt = get_prompt_for_llm_and_adjust_cursor(options)
+	local args = M.make_curl_args_for_specified_llm(options, prompt, options.llm_behavior, options.llm_api_provider)
 	local curr_event_state = nil
 
-	if opts.display_on_new_window then
-		open_new_window_before_write()
+	if options.display_on_new_window then
+		open_new_window_before_write(options.llm_api_provider)
 	end
 
 	local function parse_and_call(line)
-		if opts.llm == "anthropic" then
+		if options.llm_api_provider == "anthropic" then
 			local event = line:match("^event: (.+)$")
 			if event then
 				curr_event_state = event
@@ -241,12 +245,12 @@ function M.call_llm(opts, make_curl_args_fn, handle_data_fn)
 			end
 			local data_match = line:match("^data: (.+)$")
 			if data_match then
-				handle_data_fn(data_match, curr_event_state)
+				M.handle_anthropic_spec_data(data_match, curr_event_state)
 			end
 		end
 
-		if opts.llm == "ollama" then
-			handle_data_fn(line)
+		if options.llm_api_provider == "ollama" then
+			M.handle_ollama_spec_data(line)
 		end
 	end
 
@@ -281,7 +285,12 @@ function M.call_llm(opts, make_curl_args_fn, handle_data_fn)
 		end,
 	})
 
-	vim.api.nvim_set_keymap("n", "<Esc>", ":doautocmd User PROMPT_ASSISTANT_Escape<CR>", { noremap = true, silent = true })
+	vim.api.nvim_set_keymap(
+		"n",
+		"<Esc>",
+		":doautocmd User PROMPT_ASSISTANT_Escape<CR>",
+		{ noremap = true, silent = true }
+	)
 	return active_job
 end
 

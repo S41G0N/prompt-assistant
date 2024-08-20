@@ -16,8 +16,8 @@ local function call_anthropic(options)
 		llm_behavior = options.behavior or be_helpful,
 		replace = options.replace or false,
 		display_on_new_window = options.display_on_new_window or false,
-        llm = "anthropic"
-	}, prompt_assistant.make_anthropic_spec_curl_args, prompt_assistant.handle_anthropic_spec_data)
+        llm_api_provider = "anthropic"
+	})
 end
 
 local function call_ollama(options)
@@ -28,8 +28,8 @@ local function call_ollama(options)
 		llm_behavior = options.behavior or be_helpful,
 		replace = options.replace or false,
 		display_on_new_window = options.display_on_new_window or false,
-        llm = "ollama"
-	}, prompt_assistant.make_ollama_spec_curl_args, prompt_assistant.handle_ollama_spec_data)
+        llm_api_provider = "ollama"
+	})
 end
 
 -- Set up keybindings
