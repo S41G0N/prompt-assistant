@@ -1,17 +1,32 @@
 # prompt-assistant
 
-A Neovim plugin for interacting with the Anthropic API within the existing buffer.
-
 ![Demo](img/demo.gif)
 
-## Features
+A Neovim plugin for interacting with the Anthropic and Ollama API within the existing buffer. Code faster than ever before without ever leaving your neovim editor.
 
-- Stream AI responses directly into your Neovim buffer
+## Acknowledgment
+
+This plugin was forked from [dingllm.nvim](https://github.com/yacineMTB/dingllm.nvim) project made by yacineMTB.
+Modifications were made, the ability to display the result on a split buffer was added, cursor behavior was improved so I doesn't override existing text, users can now replace the currently selected text with the LLM response. Ollama support was added. Gloobal configuration available.
+
+## Features
 - Support for both Anthropic API and Ollama API, Grok and OpenAI will be added later
-- Easy to use commands and optional key mappings
+- Stream AI responses directly into your Neovim buffer
 - Display the result on a split screen to not meddle with your current buffer
 - Replace current selection with LLM generated code or text
 - Select the models of your choice
+- Define your custom LLM model behavior
+- Global config files for quick start, extensive config options for those who want to customize
+- No default mappings which would meddle with your existing keybinds, create your OWN mappings easily
+- Customize LLM model, behavior, text replacement per each mapping
+
+## Requirements
+
+- Neovim >= 0.7.0
+- [plenary.nvim](https://github.com/nvim-lua/plenary.nvim)
+- curl
+- Valid API keys for Anthropic (optional if Anthropic API will be used)
+- API link of a running Ollama instance (optional if Ollama will be used)
 
 ## Installation
 
@@ -25,12 +40,12 @@ use {
 ```
 
 ## Quick Start
-Setup environment variables
+Setup environment variables:
 ```sh
 export ANTHROPIC_API_KEY="your_anthropic_api_key"
 export OLLAMA_URL_LINK="your_ollama_api_link"
 ```
-Place this into your neovim config
+Place this into your neovim config:
 ```lua
 -- LOAD THE PLUGIN
 local prompt_assistant = require("prompt-assistant")
@@ -41,13 +56,8 @@ vim.keymap.set({ "n", "v" }, "<leader>l", function() prompt_assistant.call_ollam
 
 ```
 
-## Acknowledgment
-
-This plugin was forked from [dingllm.nvim](https://github.com/yacineMTB/dingllm.nvim) project made by yacineMTB.
-Modifications were made, the ability to display the result on a split window was added, cursor behavior was improved so I doesn't override existing text. Ollama support was added.
-
 ## Usage, Keymaps & Extensive Configuration
-The plugin is very easy to use, just setup a config file, require "prompt-assistant" and map the necessary functions (overriding globals, setting up custom behaviors are completely optional).
+For extensive configuration, the following can be added into your neovim config file. Load "prompt-assistant" and map the necessary functions (overriding globals and setting up custom behaviors are completely optional):
 
 ```lua
 local prompt_assistant = require("prompt-assistant")
@@ -103,14 +113,6 @@ map({ "n", "v" }, "<leader>d", function() prompt_assistant.call_ollama({ display
 
   - `<leader>d`: Ask Ollama for help (displays the output on the new window)
 
-## Requirements
-
-- Neovim >= 0.7.0
-- [plenary.nvim](https://github.com/nvim-lua/plenary.nvim)
-- curl
-- Valid API keys for Anthropic
-
-
 ## Additional Configuration (Optional)
 
 Set your API keys as and Ollama API url (e.g. http://localhost:11434/api/generate) as environment variables:
@@ -127,5 +129,4 @@ This method prevents you from having to type the API keys or ollama links direct
 Apache License 2.0
 
 ## Contributing
-
 Contributions are welcome! Please feel free to submit a Pull Request.
