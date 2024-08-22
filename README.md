@@ -40,7 +40,7 @@ use { 'S41G0N/prompt-assistant', requires = {'nvim-lua/plenary.nvim'} }
 Setup environment variables:
 ```sh
 export ANTHROPIC_API_KEY="your_anthropic_api_key"
-export OLLAMA_URL_LINK="your_ollama_api_link"
+export OLLAMA_URL_LINK="your_ollama_api_link" #default is http://localhost:11434/api/generate
 ```
 Place this into your neovim config:
 ```lua
@@ -67,11 +67,14 @@ prompt_assistant.setup({
     anthropic = {
         model = "claude-3-5-sonnet-20240620", -- Set your preferred default model
         url = "https://api.anthropic.com/v1/messages", -- You can change this if needed
+        api_key_name = "ANTHROPIC_API_KEY", -- ENV Variable name of your Anthropic API Key
+
     },
 
     ollama = {
         model = "llama3.1", -- Set your preferred default Ollama model
-        url = "http://localhost:11434/api/generate", -- Change if you're using a different URL (setting OLLAMA_URL_LINK env variable is also possible)
+        url = "http://localhost:11434", -- Change if you're using a different URL (setting OLLAMA_URL_LINK env variable is also possible)
+
     },
 
     default_behavior = "You are a helpful assistant. What I have sent are my notes so far. You are very curt, yet helpful.",
@@ -94,11 +97,14 @@ map({ "n", "v" }, "<leader>c", function() prompt_assistant.call_anthropic({ beha
 map({ "n", "v" }, "<leader>C", function() prompt_assistant.call_anthropic({ behavior = output_code, replace = true }) end, { desc = "Call Anthropic LLM and replace the current selection with code" })
 map({ "n", "v" }, "<leader>L", function() prompt_assistant.call_anthropic({ behavior = custom_behavior, display_on_new_window = true }) end, { desc = "Call Anthropic LLM to debug code on the new window" })
 map({ "n", "v" }, "<leader>d", function() prompt_assistant.call_ollama({ display_on_new_window = true }) end, { desc = "Call Ollama model to debug code on the new window" })
+map({ "n", "v" }, "<leader>T", function() prompt_assistant.call_ollama({ollama = { model = "codegemma:latest" },behavior = "You're a helpful AI",display_on_new_window = true})
+map({ "n", "v" }, "<leader>t", function() prompt_assistant.create_option_screen() end, { desc = "Options screen" })
+
 
 -- configurable parameters
---	url = <string> (non-standard url for the API without '/' at the end -> useful when running ollama on a custom port with a custom domain),
---	model = <string> (model name -> e.g. "llama3.1" or "claude-3-5-sonnet-20240620"),
---	llm_behavior = <string> (Defines LLM behavior -> e.g. "You're a strict assistant"),
+--	ollama/anthropic = {url = <string>} (non-standard url for the API without '/' at the end -> useful when running ollama on a custom port with a custom domain),
+--	ollama/anthropic = {model = <string>} (model name -> e.g. "llama3.1" or "claude-3-5-sonnet-20240620"),
+--	behavior = <string> (Defines LLM behavior -> e.g. "You're a strict assistant"),
 --	replace = <boolean> (replaces currently selected text with the LLM response),
 --	display_on_new_window = <boolean> (displays LLM response on a new window),
 ```
@@ -112,6 +118,8 @@ map({ "n", "v" }, "<leader>d", function() prompt_assistant.call_ollama({ display
   - `<leader>l`: Ask Anthropic for help (displays the output on the new window)
 
   - `<leader>d`: Ask Ollama for help (displays the output on the new window)
+  - `<leader>T`: Ask Ollama for help with custom model (codegemma) and custom behavior on split buffer
+  - `<leader>t`: Choose between all available Ollama models by in the option window (is j/k or arrow keys to navigate, 'q' to quit and ENTER to select the model)
 
 ## Additional Configuration (Optional)
 

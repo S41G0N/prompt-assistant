@@ -303,8 +303,7 @@ M.config = {
 	},
 	ollama = {
 		model = "llama3.1:latest",
-		url = "http://localhost:11434/api/generate",
-		model_list = "https://apiollama.netmv.duckdns.org/tags/generate", -- models
+		url = "http://localhost:11434",
 	},
 	default_behavior = "You are a helpful assistant. What I have sent are my notes so far. You are very curt, yet helpful.",
 	display_on_new_window = false,
@@ -334,7 +333,7 @@ function M.call_ollama(options)
 	local merged_options = vim.tbl_deep_extend("force", M.config, options)
 
 	call_llm({
-		url = merged_options.ollama.url or os.getenv("OLLAMA_URL_LINK"),
+		url = merged_options.ollama.url .. "/api/generate" or os.getenv("OLLAMA_URL_LINK"),
 		model = merged_options.ollama.model,
 		llm_behavior = merged_options.behavior or M.config.default_behavior,
 		replace = merged_options.replace,
@@ -350,7 +349,7 @@ local function fetch_ollama_models(callback)
 		command = "curl",
 		args = {
 			"-s",
-			M.config.ollama.model_list,
+			M.config.ollama.url .. "/api/tags",
 		},
 		on_exit = function(j, return_val)
 			if return_val ~= 0 then
