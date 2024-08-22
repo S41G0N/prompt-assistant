@@ -302,8 +302,9 @@ M.config = {
 		api_key_name = "ANTHROPIC_API_KEY",
 	},
 	ollama = {
+		model = "llama3.1:latest",
 		url = "http://localhost:11434/api/generate",
-		model = "llama3.1",
+		model_list = "https://apiollama.netmv.duckdns.org/tags/generate", -- models
 	},
 	default_behavior = "You are a helpful assistant. What I have sent are my notes so far. You are very curt, yet helpful.",
 	display_on_new_window = false,
@@ -316,12 +317,11 @@ end
 
 function M.call_anthropic(options)
 	options = options or {}
-	local merged_options = vim.tbl_deep_extend("force", M.config, M.config.anthropic, options)
-
+	local merged_options = vim.tbl_deep_extend("force", M.config, options)
 	call_llm({
-		url = merged_options.url,
-		model = merged_options.model,
-		api_key_name = merged_options.api_key_name,
+		url = merged_options.anthropic.url,
+		model = merged_options.anthropic.model,
+		api_key_name = merged_options.anthropic.api_key_name,
 		llm_behavior = merged_options.behavior or M.config.default_behavior,
 		replace = merged_options.replace,
 		display_on_new_window = merged_options.display_on_new_window,
@@ -331,16 +331,159 @@ end
 
 function M.call_ollama(options)
 	options = options or {}
-	local merged_options = vim.tbl_deep_extend("force", M.config, M.config.ollama, options)
+	local merged_options = vim.tbl_deep_extend("force", M.config, options)
 
 	call_llm({
-		url = merged_options.url or os.getenv("OLLAMA_URL_LINK"),
-		model = merged_options.model,
+		url = merged_options.ollama.url or os.getenv("OLLAMA_URL_LINK"),
+		model = merged_options.ollama.model,
 		llm_behavior = merged_options.behavior or M.config.default_behavior,
 		replace = merged_options.replace,
 		display_on_new_window = merged_options.display_on_new_window,
 		llm_api_provider = "ollama",
 	})
+end
+
+local api = vim.api
+
+local function fetch_ollama_models(callback)
+	Job:new({
+		command = "curl",
+		args = {
+			"-s",
+			M.config.ollama.model_list,
+		},
+		on_exit = function(j, return_val)
+			if return_val ~= 0 then
+				vim.schedule(function()
+					vim.notify("Error fetching models: curl failed with exit code " .. return_val, vim.log.levels.ERROR)
+				end)
+				callback({})
+				return
+			end
+
+			local response_body = table.concat(j:result(), "\n")
+			local ok, data = pcall(vim.json.decode, response_body)
+			if not ok then
+				vim.schedule(function()
+					vim.notify("Error parsing JSON response: " .. tostring(data), vim.log.levels.ERROR)
+				end)
+				callback({})
+				return
+			end
+
+			local models = {}
+			for _, model in ipairs(data.models) do
+				table.insert(models, model.name)
+			end
+			callback(models)
+		end,
+	}):start()
+end
+
+local function create_option_window(options)
+	local current_buf, current_win, ns_id
+
+	local function update_highlight()
+		if current_buf and current_win then
+			api.nvim_buf_clear_namespace(current_buf, ns_id, 0, -1)
+			local cursor = api.nvim_win_get_cursor(current_win)
+			api.nvim_buf_add_highlight(current_buf, ns_id, "CursorLine", cursor[1] - 1, 0, -1)
+		end
+	end
+
+	local function handle_selection()
+		if current_win then
+			local cursor = api.nvim_win_get_cursor(current_win)
+			local selected_index = cursor[1] - 1 -- Subtract 1 because the first line is the title
+			if selected_index > 0 and selected_index <= #options then
+				api.nvim_win_close(current_win, true)
+				M.call_ollama({ ollama = { model = options[selected_index] } })
+				print("Selected model: " .. options[selected_index])
+			end
+		end
+	end
+
+	-- Create a new buffer
+	current_buf = api.nvim_create_buf(false, true)
+
+	-- Set buffer options
+	api.nvim_buf_set_option(current_buf, "buftype", "nofile")
+	api.nvim_buf_set_option(current_buf, "bufhidden", "wipe")
+
+	-- Create content
+	local lines = { "Choose a model:" }
+	for i, option in ipairs(options) do
+		table.insert(lines, string.format("%d. %s", i, option))
+	end
+
+	-- Set buffer lines
+	api.nvim_buf_set_lines(current_buf, 0, -1, false, lines)
+
+	-- Open the buffer in a new window
+	local width = 60 -- Increased width to accommodate longer model names
+	local height = #lines
+	current_win = api.nvim_open_win(current_buf, true, {
+		relative = "editor",
+		width = width,
+		height = height,
+		col = (vim.o.columns - width) / 2,
+		row = (vim.o.lines - height) / 2,
+		style = "minimal",
+		border = "rounded",
+	})
+
+	-- Set cursor to the first option
+	api.nvim_win_set_cursor(current_win, { 2, 0 })
+
+	-- Highlight the current line
+	ns_id = api.nvim_create_namespace("OptionScreenHighlight")
+	update_highlight()
+
+	-- Set up keymaps for navigation and selection
+	local opts = { noremap = true, silent = true }
+	api.nvim_buf_set_keymap(
+		current_buf,
+		"n",
+		"j",
+		[[<cmd>lua vim.api.nvim_win_set_cursor(0, {math.min(vim.fn.line('.') + 1, vim.fn.line('$')), 0})<CR>]],
+		opts
+	)
+	api.nvim_buf_set_keymap(
+		current_buf,
+		"n",
+		"k",
+		[[<cmd>lua vim.api.nvim_win_set_cursor(0, {math.max(vim.fn.line('.') - 1, 2), 0})<CR>]],
+		opts
+	)
+	api.nvim_buf_set_keymap(
+		current_buf,
+		"n",
+		"<CR>",
+		"",
+		{ noremap = true, silent = true, callback = handle_selection }
+	)
+	api.nvim_buf_set_keymap(current_buf, "n", "q", "<cmd>close<CR>", opts)
+
+	-- Set up autocommand to update highlight when cursor moves
+	api.nvim_create_autocmd("CursorMoved", {
+		buffer = current_buf,
+		callback = update_highlight,
+	})
+end
+
+function M.create_option_screen()
+	fetch_ollama_models(function(options)
+		if #options == 0 then
+			vim.schedule(function()
+				vim.notify("No models available.", vim.log.levels.WARN)
+			end)
+			return
+		end
+
+		vim.schedule(function()
+			create_option_window(options)
+		end)
+	end)
 end
 
 return M

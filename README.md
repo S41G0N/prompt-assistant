@@ -33,10 +33,7 @@ Modifications were made, the ability to display the result on a split buffer was
 Using [packer.nvim](https://github.com/wbthomason/packer.nvim):
 
 ```lua
-use {
-  'S41G0N/prompt-assistant',
-  requires = {'nvim-lua/plenary.nvim'},
-}
+use { 'S41G0N/prompt-assistant', requires = {'nvim-lua/plenary.nvim'} }
 ```
 
 ## Quick Start
@@ -53,6 +50,9 @@ local prompt_assistant = require("prompt-assistant")
 -- MAP KEYBINDS TO ONE OF THE 2 AVAILABLE FUNCTIONS (call_anthropic, call_ollama)
 vim.keymap.set({ "n", "v" }, "<leader>h", function() prompt_assistant.call_anthropic() end, { desc = "Call Anthropic LLM with default options" })
 vim.keymap.set({ "n", "v" }, "<leader>l", function() prompt_assistant.call_ollama() end, { desc = "Call Ollama LLM with default options" })
+
+-- MAP SPECIAL FUNCTION TO LIST ALL AVAILABLE OLLAMA MODELS (SELECT BY j/k or Arrow Keys and press ENTER or 'q' to quit)
+vim.keymap.set({ "n", "v" }, "<leader>t", function() prompt_assistant.create_option_screen() end, { desc = "List Available LLMs" })
 
 ```
 
