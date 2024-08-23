@@ -68,13 +68,12 @@ prompt_assistant.setup({
         model = "claude-3-5-sonnet-20240620", -- Set your preferred default model
         url = "https://api.anthropic.com/v1/messages", -- You can change this if needed
         api_key_name = "ANTHROPIC_API_KEY", -- ENV Variable name of your Anthropic API Key
-
+        max_tokens = 1234, -- The max token length of Anthropic response (Default is 4096)
     },
 
     ollama = {
         model = "llama3.1", -- Set your preferred default Ollama model
         url = "http://localhost:11434", -- Change if you're using a different URL (setting OLLAMA_URL_LINK env variable is also possible)
-
     },
 
     default_behavior = "You are a helpful assistant. What I have sent are my notes so far. You are very curt, yet helpful.",

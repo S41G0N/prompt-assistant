@@ -1,6 +1,6 @@
 local Job = require("plenary.job")
 
-local function get_api_key(name)
+local function get_env_value(name)
 	return os.getenv(name)
 end
 
@@ -176,13 +176,13 @@ local function make_curl_args_for_specified_llm(options, prompt, llm_behavior, l
 	local url = options.url
 
 	if llm_api_provider == "anthropic" then
-		local api_key = get_api_key(options.api_key_name)
+		local api_key = get_env_value(options.api_key_name)
 		local data = {
 			system = llm_behavior,
 			messages = { { role = "user", content = prompt } },
 			model = options.model,
 			stream = true,
-			max_tokens = 4096,
+			max_tokens = options.max_tokens,
 		}
 		local args = { "-N", "-X", "POST", "-H", "Content-Type: application/json", "-d", vim.json.encode(data) }
 		if api_key then
@@ -300,6 +300,7 @@ M.config = {
 		url = "https://api.anthropic.com/v1/messages",
 		model = "claude-3-5-sonnet-20240620",
 		api_key_name = "ANTHROPIC_API_KEY",
+		max_tokens = 4096,
 	},
 	ollama = {
 		model = "llama3.1:latest",
@@ -325,6 +326,7 @@ function M.call_anthropic(options)
 		replace = merged_options.replace,
 		display_on_new_window = merged_options.display_on_new_window,
 		llm_api_provider = "anthropic",
+        max_tokens = merged_options.anthropic.max_tokens
 	})
 end
 
@@ -333,7 +335,7 @@ function M.call_ollama(options)
 	local merged_options = vim.tbl_deep_extend("force", M.config, options)
 
 	call_llm({
-		url = merged_options.ollama.url .. "/api/generate" or os.getenv("OLLAMA_URL_LINK"),
+		url = (merged_options.ollama.url or os.getenv("OLLAMA_URL_LINK")) .. "api/generate",
 		model = merged_options.ollama.model,
 		llm_behavior = merged_options.behavior or M.config.default_behavior,
 		replace = merged_options.replace,
@@ -342,44 +344,29 @@ function M.call_ollama(options)
 	})
 end
 
-local api = vim.api
-
 local function fetch_ollama_models(callback)
-	Job:new({
-		command = "curl",
-		args = {
-			"-s",
-			M.config.ollama.url .. "/api/tags",
-		},
-		on_exit = function(j, return_val)
-			if return_val ~= 0 then
-				vim.schedule(function()
-					vim.notify("Error fetching models: curl failed with exit code " .. return_val, vim.log.levels.ERROR)
-				end)
-				callback({})
-				return
+	local run_curl = require("plenary.curl")
+	run_curl.get(M.config.ollama.url .. "/api/tags", {
+		callback = vim.schedule_wrap(function(res)
+			if res.status ~= 200 then
+				local err_msg = type(res.body) == "string" and res.body or "HTTP error " .. res.status
+				vim.notify("Error fetching models: " .. err_msg, vim.log.levels.ERROR)
+				return callback({})
 			end
-
-			local response_body = table.concat(j:result(), "\n")
-			local ok, data = pcall(vim.json.decode, response_body)
+			local ok, decoded = pcall(vim.json.decode, res.body)
 			if not ok then
-				vim.schedule(function()
-					vim.notify("Error parsing JSON response: " .. tostring(data), vim.log.levels.ERROR)
-				end)
-				callback({})
-				return
+				vim.notify("Error parsing JSON response", vim.log.levels.ERROR)
+				return callback({})
 			end
-
-			local models = {}
-			for _, model in ipairs(data.models) do
-				table.insert(models, model.name)
-			end
-			callback(models)
-		end,
-	}):start()
+			callback(vim.tbl_map(function(model)
+				return model.name
+			end, decoded.models))
+		end),
+	})
 end
 
 local function create_option_window(options)
+	local api = vim.api
 	local current_buf, current_win, ns_id
 
 	local function update_highlight()
@@ -419,7 +406,7 @@ local function create_option_window(options)
 	api.nvim_buf_set_lines(current_buf, 0, -1, false, lines)
 
 	-- Open the buffer in a new window
-	local width = 60 -- Increased width to accommodate longer model names
+	local width = 30 -- Increased width to accommodate longer model names
 	local height = #lines
 	current_win = api.nvim_open_win(current_buf, true, {
 		relative = "editor",
