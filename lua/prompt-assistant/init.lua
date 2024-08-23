@@ -1,7 +1,14 @@
 local Job = require("plenary.job")
 
 local function get_env_value(name)
-	return os.getenv(name)
+	if not name or type(name) ~= "string" then
+		error("Invalid input: name must be a non-empty string")
+	end
+	local value = os.getenv(name)
+	if not value then
+		error("Environment variable '" .. name .. "' not found")
+	end
+	return value
 end
 
 local function write_string_at_cursor(str)
@@ -145,7 +152,7 @@ local function get_prompt_for_llm_and_adjust_cursor(replace_text_boolean)
 end
 
 local function get_ascii_message(message_name)
-	local ascii_file = os.getenv("HOME")
+	local ascii_file = get_env_value("HOME")
 		.. "/.local/share/nvim/site/pack/packer/start/prompt-assistant"
 		.. "/ascii_msg/"
 		.. message_name
@@ -326,7 +333,7 @@ function M.call_anthropic(options)
 		replace = merged_options.replace,
 		display_on_new_window = merged_options.display_on_new_window,
 		llm_api_provider = "anthropic",
-        max_tokens = merged_options.anthropic.max_tokens
+		max_tokens = merged_options.anthropic.max_tokens,
 	})
 end
 
@@ -335,7 +342,7 @@ function M.call_ollama(options)
 	local merged_options = vim.tbl_deep_extend("force", M.config, options)
 
 	call_llm({
-		url = (merged_options.ollama.url or os.getenv("OLLAMA_URL_LINK")) .. "/api/generate",
+		url = (merged_options.ollama.url or get_env_value("OLLAMA_URL_LINK")) .. "/api/generate",
 		model = merged_options.ollama.model,
 		llm_behavior = merged_options.behavior or M.config.default_behavior,
 		replace = merged_options.replace,
