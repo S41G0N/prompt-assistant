@@ -335,7 +335,7 @@ function M.call_ollama(options)
 	local merged_options = vim.tbl_deep_extend("force", M.config, options)
 
 	call_llm({
-		url = (merged_options.ollama.url or os.getenv("OLLAMA_URL_LINK")) .. "api/generate",
+		url = (merged_options.ollama.url or os.getenv("OLLAMA_URL_LINK")) .. "/api/generate",
 		model = merged_options.ollama.model,
 		llm_behavior = merged_options.behavior or M.config.default_behavior,
 		replace = merged_options.replace,
