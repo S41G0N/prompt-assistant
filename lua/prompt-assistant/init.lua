@@ -2,11 +2,11 @@ local Job = require("plenary.job")
 
 local function get_env_value(name)
 	if not name or type(name) ~= "string" then
-		error("Invalid input: name must be a non-empty string")
+		vim.notify("Invalid input: name must be a non-empty string", vim.log.levels.ERROR)
 	end
 	local value = os.getenv(name)
 	if not value then
-		error("Environment variable '" .. name .. "' not found")
+		vim.notify("Environment variable '" .. name .. "' not found", vim.log.levels.ERROR)
 	end
 	return value
 end
@@ -183,7 +183,7 @@ local function make_curl_args_for_specified_llm(options, prompt, llm_behavior, l
 	local url = options.url
 
 	if llm_api_provider == "anthropic" then
-		local api_key = get_env_value(options.api_key_name)
+		local api_key = options.api_key or get_env_value(options.api_key_name)
 		local data = {
 			system = llm_behavior,
 			messages = { { role = "user", content = prompt } },
@@ -329,6 +329,7 @@ function M.call_anthropic(options)
 		url = merged_options.anthropic.url,
 		model = merged_options.anthropic.model,
 		api_key_name = merged_options.anthropic.api_key_name,
+		api_key = merged_options.anthropic.api_key,
 		llm_behavior = merged_options.behavior or M.config.default_behavior,
 		replace = merged_options.replace,
 		display_on_new_window = merged_options.display_on_new_window,
@@ -413,7 +414,7 @@ local function create_option_window(options)
 	api.nvim_buf_set_lines(current_buf, 0, -1, false, lines)
 
 	-- Open the buffer in a new window
-	local width = 30 -- Increased width to accommodate longer model names
+	local width = 40 -- Increased width to accommodate longer model names
 	local height = #lines
 	current_win = api.nvim_open_win(current_buf, true, {
 		relative = "editor",
